@@ -11,3 +11,9 @@ state/
 .pytest_cache/
 
 .vs/
+
+**/bin/
+**/obj/
+
+**/bin/
+**/obj/
