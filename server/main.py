@@ -1,68 +1,59 @@
-import secrets
+from __future__ import annotations
+
 import time
-from fastapi import FastAPI, HTTPException
+from collections.abc import Callable
+
+from fastapi import FastAPI
+
 from shared.models import Challenge, PresenceEvidence, VerificationResult
+from server.adapters.fake import FakeGEO, FakeTPM, FakeUWB
+from server.challenge_service import ChallengeService
+from server.challenge_store import MemoryChallengeStore
+from server.evidence_access import EvidenceAccessor
+from server.verifier import PresenceVerifier
 
-app = FastAPI(title="TrustedPresence MVP", version="0.1")
-CHALLENGES: dict[str, Challenge] = {}
-EPOCHS: dict[str, int] = {}
-ANCHORS = ["A", "B", "C", "D", "E"]
 
-@app.get("/health")
-def health():
-    return {"ok": True}
+def create_app(
+    *,
+    store: MemoryChallengeStore | None = None,
+    tpm_verifier=None,
+    geo_verifier=None,
+    uwb_verifier=None,
+    clock: Callable[[], float] = time.time,
+) -> FastAPI:
+    store = store if store is not None else MemoryChallengeStore()
+    tpm_verifier = tpm_verifier if tpm_verifier is not None else FakeTPM()
+    geo_verifier = geo_verifier if geo_verifier is not None else FakeGEO()
+    uwb_verifier = uwb_verifier if uwb_verifier is not None else FakeUWB()
 
-@app.get("/challenge/{device_id}", response_model=Challenge)
-def make_challenge(device_id: str):
-    now = int(time.time())
-    epoch = EPOCHS.get(device_id, 0) + 1
-    EPOCHS[device_id] = epoch
-    witnesses = secrets.SystemRandom().sample(ANCHORS, 3)
-    challenge = Challenge(
-        session_id=secrets.token_hex(8),
-        device_id=device_id,
-        epoch=epoch,
-        nonce=secrets.token_hex(32),
-        witnesses=witnesses,
-        issued_at=now,
-        expires_at=now + 30,
+    challenge_service = ChallengeService(store, clock=clock)
+    verifier = PresenceVerifier(
+        store=store,
+        tpm_verifier=tpm_verifier,
+        geo_verifier=geo_verifier,
+        uwb_verifier=uwb_verifier,
+        accessor=EvidenceAccessor(),
+        clock=clock,
     )
-    CHALLENGES[challenge.session_id] = challenge
-    return challenge
 
-@app.post("/evidence", response_model=VerificationResult)
-def verify_evidence(e: PresenceEvidence):
-    c = CHALLENGES.get(e.session_id)
-    if c is None:
-        raise HTTPException(404, "unknown session")
+    app = FastAPI(title="TrustedPresence MVP", version="0.1")
+    app.state.challenge_store = store
+    app.state.challenge_service = challenge_service
+    app.state.presence_verifier = verifier
 
-    reasons: list[str] = []
-    now = int(time.time())
-    if now > c.expires_at:
-        reasons.append("challenge_expired")
-    if e.device_id != c.device_id:
-        reasons.append("device_mismatch")
-    if e.epoch != c.epoch:
-        reasons.append("epoch_mismatch")
-    if e.nonce != c.nonce or e.tpm.nonce != c.nonce:
-        reasons.append("nonce_mismatch")
-    if sorted(e.uwb.witnesses) != sorted(c.witnesses):
-        reasons.append("witness_set_mismatch")
-    if not e.tpm.secure_boot:
-        reasons.append("secure_boot_failed")
-    if not e.geo.inside or not e.geo.fresh:
-        reasons.append("macro_location_failed")
-    if not e.uwb.inside:
-        reasons.append("room_presence_failed")
+    @app.get("/health")
+    def health():
+        return {"ok": True}
 
-    # Day-1 MVP: cryptographic TPM verification is implemented by TPM owner.
-    trusted = not reasons
-    if trusted:
-        CHALLENGES.pop(e.session_id, None)  # one-time challenge, blocks replay
+    @app.get("/challenge/{device_id}", response_model=Challenge)
+    def make_challenge(device_id: str):
+        return challenge_service.issue(device_id)
 
-    return VerificationResult(
-        trusted=trusted,
-        reasons=reasons or ["all_checks_passed"],
-        session_id=e.session_id,
-        epoch=e.epoch,
-    )
+    @app.post("/evidence", response_model=VerificationResult)
+    def verify_evidence(evidence: PresenceEvidence):
+        return verifier.verify_evidence(evidence)
+
+    return app
+
+
+app = create_app()
