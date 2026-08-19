@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import time
 from collections.abc import Callable
@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from shared.models import Challenge, PresenceEvidence, VerificationResult
 from server.adapters.fake import FakeGEO, FakeTPM, FakeUWB
+from server.adapters.tpm import IntegratedTPMVerifier
 from server.challenge_service import ChallengeService
 from server.challenge_store import MemoryChallengeStore
 from server.evidence_access import EvidenceAccessor
@@ -22,7 +23,7 @@ def create_app(
     clock: Callable[[], float] = time.time,
 ) -> FastAPI:
     store = store if store is not None else MemoryChallengeStore()
-    tpm_verifier = tpm_verifier if tpm_verifier is not None else FakeTPM()
+    tpm_verifier = tpm_verifier if tpm_verifier is not None else IntegratedTPMVerifier()
     geo_verifier = geo_verifier if geo_verifier is not None else FakeGEO()
     uwb_verifier = uwb_verifier if uwb_verifier is not None else FakeUWB()
 
@@ -57,3 +58,4 @@ def create_app(
 
 
 app = create_app()
+
