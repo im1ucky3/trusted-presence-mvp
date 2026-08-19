@@ -9,3 +9,5 @@ state/
 *.pub
 *.name
 .pytest_cache/
+
+.vs/
