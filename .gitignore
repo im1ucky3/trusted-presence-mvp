@@ -9,3 +9,12 @@ state/
 *.pub
 *.name
 .pytest_cache/
+
+.vs/
+
+**/bin/
+**/obj/
+
+**/bin/
+**/obj/
+state/tpm_enrollment.json
