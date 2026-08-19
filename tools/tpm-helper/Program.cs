@@ -25,11 +25,27 @@ class Program
                 return RunQuote(args[1]);
             }
 
+            if (args.Length == 9 && args[0] == "verify")
+            {
+                return RunVerifyQuote(
+                    args[1],
+                    args[2],
+                    args[3],
+                    args[4],
+                    args[5],
+                    args[6],
+                    args[7],
+                    args[8]
+                );
+            }
+
             Console.Error.WriteLine(
-                "Usage:\n" +
-                "  tpm-helper pcr-read\n" +
-                "  tpm-helper quote <64-char-hex-nonce>"
-            );
+    "Usage:\n" +
+    "  tpm-helper pcr-read\n" +
+    "  tpm-helper quote <64-char-hex-nonce>\n" +
+    "  tpm-helper verify <ak-public-b64> <quote-b64> " +
+    "<signature-b64> <nonce> <pcr0> <pcr2> <pcr4> <pcr7>"
+);
 
             return 1;
         }
@@ -349,5 +365,90 @@ class Program
 
             tpm.Dispose();
         }
+    }
+    static int RunVerifyQuote(
+    string akPublicB64,
+    string quoteB64,
+    string signatureB64,
+    string nonceHex,
+    string pcr0,
+    string pcr2,
+    string pcr4,
+    string pcr7
+)
+    {
+        byte[] nonce = Convert.FromHexString(nonceHex);
+
+        byte[] akPublicBytes =
+            Convert.FromBase64String(akPublicB64);
+
+        byte[] quoteBytes =
+            Convert.FromBase64String(quoteB64);
+
+        byte[] signatureBytes =
+            Convert.FromBase64String(signatureB64);
+
+        TpmPublic akPublic =
+            Marshaller.FromTpmRepresentation<TpmPublic>(
+                akPublicBytes
+            );
+
+        Attest quotedInfo =
+            Marshaller.FromTpmRepresentation<Attest>(
+                quoteBytes
+            );
+
+        var signature = new SignatureRsassa(
+            TpmAlgId.Sha256,
+            signatureBytes
+        );
+
+        var selection = new[]
+        {
+        new PcrSelection(
+            TpmAlgId.Sha256,
+            RequestedPcrs
+        )
+    };
+
+        var pcrValues = new[]
+        {
+        new Tpm2bDigest(
+            Convert.FromHexString(pcr0)
+        ),
+        new Tpm2bDigest(
+            Convert.FromHexString(pcr2)
+        ),
+        new Tpm2bDigest(
+            Convert.FromHexString(pcr4)
+        ),
+        new Tpm2bDigest(
+            Convert.FromHexString(pcr7)
+        )
+    };
+
+        bool valid = akPublic.VerifyQuote(
+            TpmAlgId.Sha256,
+            selection,
+            pcrValues,
+            nonce,
+            quotedInfo,
+            signature
+        );
+
+        Console.WriteLine(
+            JsonSerializer.Serialize(
+                new
+                {
+                    valid
+                },
+                new JsonSerializerOptions
+                {
+                    WriteIndented = true
+                }
+            )
+        );
+
+        return valid ? 0 : 3;
     }
 }

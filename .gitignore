@@ -17,3 +17,4 @@ state/
 
 **/bin/
 **/obj/
+state/tpm_enrollment.json
